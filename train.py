@@ -1,5 +1,5 @@
 import argparse, os, sys, time, gc, datetime
-os.environ['CUDA_VISIBLE_DEVICES'] = '6,7'
+os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -51,7 +51,7 @@ parser.add_argument('--last_stage', type=str, default="stage4", help='last_stage
 parser.add_argument('--ndepths', type=int, default=192, help='ndepths')
 parser.add_argument('--depth_inter_r', type=str, default="1", help='depth_intervals_ratio')
 parser.add_argument('--GRUiters', type=str, default="3,3,3",  help='iters')
-parser.add_argument('--iters', type=int, default=12,  help='iters')
+parser.add_argument('--iters', type=int, default=10,  help='iters')
 parser.add_argument('--CostNum', type=int, default=1,  help='CostNum')
 parser.add_argument('--trainviews', type=int, default=3,  help='trainviews')
 parser.add_argument('--testviews', type=int, default=3,  help='testviews')
@@ -154,8 +154,10 @@ def train_sample(model, model_loss, optimizer, sample, args):
     # num_stage = len([int(nd) for nd in args.ndepths.split(",") if nd])
     depth_gt = depth_gt_ms
     mask = mask_ms
-    outputs = model(sample_cuda["imgs"], sample_cuda["proj_matrices"], sample_cuda["depth_values"])
+    outputs = model(sample_cuda["imgs"], sample_cuda["proj_matrices"], sample_cuda["depth_values"],depth_gt)
     outputs_depth = outputs["depth"]
+    for i, stage_inputs in enumerate(outputs_depth):
+        print("i,depth",i,stage_inputs.shape)
     iter_list = [int(e) for e in args.GRUiters.split(",")]
 
     dlossw_list = [1 for x in range(iter_list[0] + 1)] + [2 for x in range(iter_list[1] +1 )] + [3 for x in range(iter_list[2] +1 )] + [4]
@@ -205,6 +207,8 @@ def test_sample_depth(model, model_loss, sample, args):
 
     outputs = model_eval(sample_cuda["imgs"], sample_cuda["proj_matrices"], sample_cuda["depth_values"])
     outputs_depth = outputs["depth"]
+    # for i, stage_inputs in enumerate(outputs_depth):
+    #     print("i,depth",i,stage_inputs.shape)
     iter_list = [int(e) for e in args.GRUiters.split(",")]
     dlossw_list = [1 for x in range(iter_list[0] + 1)] + [2 for x in range(iter_list[1] +1 )] + [3 for x in range(iter_list[2] +1 )] + [4]
     loss, depth_loss_dict = model_loss(outputs_depth, depth_gt_ms, mask_ms, dlossw_list, loss_rate=0.9)

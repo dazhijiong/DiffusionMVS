@@ -78,7 +78,7 @@ class MVSDataset(Dataset):
         return depth_image
 
     def __getitem__(self, idx):
-        cv2.setNumThreads(0)
+        cv2.setNumThreads(1)
         cv2.ocl.setUseOpenCL(False)
         # print('idx: {}, flip_falg {}'.format(idx, flip_flag))
         meta = self.metas[idx]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-MVS_TRAINING="/data1/local_userdata/wangshaoqian/DTU/mvs_training/dtu/"
+MVS_TRAINING="/home/zhanghanzhi/dtu/"
 BLEND_TRAINING="/data1/local_userdata/wangshaoqian/dataset_low_res"
 LOG_DIR="./checkpoints/Effi-MVS"
 LOG_DIR_CKPT="./checkpoints/DTU.ckpt"
@@ -13,7 +13,7 @@ if [ ! -d $dirAndName ]; then
 fi
 
 ##DTU
-python -u train.py --mode='train' --epochs=16 --numdepth=384 --trainviews=5 --testviews=5 --logdir $LOG_DIR --dataset=dtu_yao_1to8_inverse --batch_size=12 --trainpath=$MVS_TRAINING \
+python -u train.py --mode='train' --epochs=16 --numdepth=384 --trainviews=5 --testviews=5 --logdir $LOG_DIR --dataset=dtu_yao_1to8_inverse --batch_size=4 --trainpath=$MVS_TRAINING \
                 --trainlist lists/dtu/train.txt --testlist lists/dtu/test.txt --ndepths=48 --CostNum=4 --lr=0.001 | tee -i $dirAndName
 
 ##finetune on BlendedMVS

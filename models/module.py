@@ -500,22 +500,128 @@ def depth_regression(p, depth_values):
 
 
 def smooth_loss(inputs, depth_gt_ms, mask_ms, dloss, loss_rate=0.9):
+        # loss_dict = {}
+    # loss_len = len(inputs)
+    # loss_rate = loss_rate
+    # stage_id = dloss
+    # for i, stage_inputs in enumerate(inputs):
+    #     depth_est = stage_inputs
+    #     depth_gt = depth_gt_ms["stage{}".format(stage_id[i])]
+    #     mask = mask_ms["stage{}".format(stage_id[i])]
+    #     print("i loss len depth_est mask",i,loss_len,depth_est.shape,mask.shape)
+    #     mask = mask > 0.5
+    #     depth_loss = F.smooth_l1_loss(depth_est[mask], depth_gt[mask], reduction='mean')
+    #     loss_dict["l{}".format(i)] = depth_loss
+    #     if i == 0:
+    #         total_loss += 1.0 * depth_loss
+    #     else:
+    #         total_loss += (loss_rate ** (loss_len - i - 1)) * depth_loss
+    #     if i>3:
+    #         break
+    # return total_loss, loss_dict
+        # total_loss = 0.0#torch.tensor(0.0, dtype=torch.float32, device=mask_ms["stage1"].device, requires_grad=False)
+    
+    
+    diff_train_1=True
+    diff_train_2=True
+    diff_train_3=True
+    iters=[3,3,2]
     total_loss = torch.tensor(0.0, dtype=torch.float32, device=mask_ms["stage1"].device, requires_grad=False)
+
     loss_dict = {}
-    loss_len = len(inputs)
+    
+    loss_len = len(inputs)-3
     loss_rate = loss_rate
-    stage_id = dloss
-    for i, stage_inputs in enumerate(inputs):
+    # stage_id = dloss
+    # print("loss")
+    # stage 1
+    depth_est = inputs[0]
+    depth_gt = depth_gt_ms["stage1"]
+    mask = mask_ms["stage1"]
+    mask = mask > 0.5
+    # print("depth_est mask",depth_est.shape,mask.shape)
+    depth_loss = F.smooth_l1_loss(depth_est[mask], depth_gt[mask], reduction='mean')
+    loss_dict["l0"] = depth_loss
+    total_loss += 0.5 * depth_loss
+
+    depth_est = inputs[1]
+    depth_gt = depth_gt_ms["stage2"]
+    mask = mask_ms["stage2"]
+    mask = mask > 0.5
+    # print("depth_est mask",depth_est.shape,mask.shape)
+    depth_loss = F.smooth_l1_loss(depth_est[mask], depth_gt[mask], reduction='mean')
+    loss_dict["l1"] = depth_loss
+    if not diff_train_1:
+        total_loss += 0.25 * depth_loss
+
+    depth_est = inputs[2]
+    depth_gt = depth_gt_ms["stage3"]
+    mask = mask_ms["stage3"]
+    mask = mask > 0.5
+    # print("depth_est mask",depth_est.shape,mask.shape)
+    depth_loss = F.smooth_l1_loss(depth_est[mask], depth_gt[mask], reduction='mean')
+    loss_dict["l2"] = depth_loss
+    if not diff_train_1:
+        total_loss += 0.25 * depth_loss
+
+    inputs_stage = inputs[3:3+iters[0]]
+    for i, stage_inputs in enumerate(inputs_stage):
+
         depth_est = stage_inputs
-        depth_gt = depth_gt_ms["stage{}".format(stage_id[i])]
-        mask = mask_ms["stage{}".format(stage_id[i])]
+        depth_gt = depth_gt_ms["stage1"]
+        mask = mask_ms["stage1"]
         mask = mask > 0.5
+        # print("depth_est mask",depth_est.shape,mask.shape)
+        # print("depth_est mask",depth_est.shape,mask.shape)
         depth_loss = F.smooth_l1_loss(depth_est[mask], depth_gt[mask], reduction='mean')
-        loss_dict["l{}".format(i)] = depth_loss
-        if i == 0:
-            total_loss += 1.0 * depth_loss
-        else:
+        loss_dict["l{}".format(i+3)] = depth_loss
+        # do not train diffusion if diff_train_1 is False
+        if diff_train_1:
+            # print("lalala")
             total_loss += (loss_rate ** (loss_len - i - 1)) * depth_loss
+
+    # stage 2
+    inputs_stage = inputs[3+iters[0]:3+iters[0]+iters[1]]
+    for i, stage_inputs in enumerate(inputs_stage):
+        depth_est = stage_inputs
+        depth_gt = depth_gt_ms["stage2"]
+        mask = mask_ms["stage2"]
+        mask = mask > 0.5
+        # print("depth_est mask",depth_est.shape,mask.shape)
+        # depth_est=F.interpolate(depth_est,scale_factor=2, mode='bilinear')
+        depth_loss = F.smooth_l1_loss(depth_est[mask], depth_gt[mask], reduction='mean')
+        loss_dict["l{}".format(i+3+iters[0])] = depth_loss
+        # do not train diffusion if diff_train_2 is False
+        if diff_train_2:
+            total_loss += (loss_rate ** (loss_len - (i+iters[0]) - 1)) * depth_loss
+
+    # stage 3
+    inputs_stage = inputs[3+iters[0]+iters[1]:-1]
+    for i, stage_inputs in enumerate(inputs_stage):
+        depth_est = stage_inputs
+        depth_gt = depth_gt_ms["stage3"]
+        mask = mask_ms["stage3"]
+        mask = mask > 0.5
+        # print("depth_est mask",depth_est.shape,mask.shape)
+        depth_loss = F.smooth_l1_loss(depth_est[mask], depth_gt[mask], reduction='mean')
+        loss_dict["l{}".format(i+3+iters[0]+iters[1])] = depth_loss
+        # do not train diffusion if diff_train_3 is False
+        if diff_train_3:
+            total_loss += (loss_rate ** (loss_len - (i+iters[0]+iters[1]) - 1)) * depth_loss
+
+    # stage 4
+    depth_est = inputs[-1]
+    depth_gt = depth_gt_ms["stage4"]
+    mask = mask_ms["stage4"]
+    mask = mask > 0.5
+    # print(depth_est.size())
+    # print(depth_gt.size())
+    # print(mask.size())
+    depth_loss = F.smooth_l1_loss(depth_est[mask], depth_gt[mask], reduction='mean')
+    loss_dict["l{}".format(3+iters[0]+iters[1]+iters[2])] = depth_loss
+    if diff_train_3:
+        total_loss += (loss_rate ** (loss_len - (iters[0]+iters[1]+iters[2]) - 1)) * depth_loss
+
     return total_loss, loss_dict
 
 def get_cur_depth_range_samples(cur_depth, ndepth, depth_inteval_pixel, shape, max_depth=192.0, min_depth=0.0):

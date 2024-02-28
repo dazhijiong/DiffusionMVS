@@ -1,10 +1,10 @@
 ##!/usr/bin/env bash
 
-DTU_TESTING="/data1/local_userdata/wangshaoqian/DTU/dtu_testing/"
+DTU_TESTING="/home/zhanghanzhi/dtu/"
 
 TANK_TESTING='/data1/local_userdata/wangshaoqian/tankandtemples/'
 
-CKPT_FILE="./checkpoints/TANK_train_on_dtu.ckpt"
+CKPT_FILE="/home/zhanghanzhi/Effi-MVS/checkpoints/Effi-MVS/model_000015.ckpt"
 
 OUT_DIR='Effi-MVS_result'
 

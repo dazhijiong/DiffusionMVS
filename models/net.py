@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .module import *
-from .update import BasicUpdateBlockDepth
+from .update import BasicUpdateBlockDepth,DiffUpdateBlockDepth
 from functools import partial
 
 Align_Corners_Range = False
@@ -163,6 +163,7 @@ class GetCost(nn.Module):
         volume_variance = volume_variance.view(b, c*d, h, w)
         return volume_variance
 
+
 class Effi_MVS(nn.Module):
     def __init__(self, args, depth_interals_ratio=[4,2,1], stage_channel=True):
         super(Effi_MVS, self).__init__()
@@ -178,26 +179,41 @@ class Effi_MVS(nn.Module):
         self.hdim_stage = [64,32,16]
         self.cdim_stage = [64,32,16]
         self.context_feature = [128, 64, 32]
-        self.feat_ratio = 2
+        self.feat_ratio = 8
         self.cost_dim_stage = [32, 16, 8]
         print("**********netphs:{}, depth_intervals_ratio:{}, hdim_stage:{}, cdim_stage:{}, context_feature:{}, cost_dim_stage:{}************".format(
             self.ndepths,depth_interals_ratio,self.hdim_stage,self.cdim_stage,self.context_feature,self.cost_dim_stage))
         self.feature = P_1to8_FeatureNet(base_channels=8, out_channel=self.cost_dim_stage, stage_channel=self.stage_channel)
         self.cnet_depth = P_1to8_FeatureNet(base_channels=8, out_channel=self.context_feature, stage_channel=self.stage_channel)
-        self.update_block_depth1 = BasicUpdateBlockDepth(hidden_dim=self.hdim_stage[0], cost_dim=self.cost_dim_stage[0]*self.CostNum,
-                                                        ratio=self.feat_ratio, context_dim=self.cdim_stage[0], UpMask=True)
-        self.update_block_depth2 = BasicUpdateBlockDepth(hidden_dim=self.hdim_stage[1], cost_dim=self.cost_dim_stage[1]*self.CostNum,
-                                                        ratio=self.feat_ratio, context_dim=self.cdim_stage[1], UpMask=True)
+        # self.update_block_depth1 = BasicUpdateBlockDepth(hidden_dim=self.hdim_stage[0], cost_dim=self.cost_dim_stage[0]*self.CostNum,
+        #                                                 ratio=self.feat_ratio, context_dim=self.cdim_stage[0], UpMask=True)
+        # self.update_block_depth2 = BasicUpdateBlockDepth(hidden_dim=self.hdim_stage[1], cost_dim=self.cost_dim_stage[1]*self.CostNum,
+        #                                                 ratio=self.feat_ratio, context_dim=self.cdim_stage[1], UpMask=True)
 
-        self.update_block_depth3 = BasicUpdateBlockDepth(hidden_dim=self.hdim_stage[2], cost_dim=self.cost_dim_stage[2]*self.CostNum,
-                                                        ratio=self.feat_ratio, context_dim=self.cdim_stage[2], UpMask=True)
+        # self.update_block_depth3 = BasicUpdateBlockDepth(hidden_dim=self.hdim_stage[2], cost_dim=self.cost_dim_stage[2]*self.CostNum,
+        #                                                 ratio=self.feat_ratio, context_dim=self.cdim_stage[2], UpMask=True)
+        self.update_block_depth1 = DiffUpdateBlockDepth(args=args,
+           hidden_dim=self.hdim_stage[0], cost_dim=self.cost_dim_stage[0]*self.CostNum,
+            context_dim=self.cdim_stage[0], stage_idx=0, UpMask=True)
+        self.update_block_depth2 = DiffUpdateBlockDepth(args, 
+            hidden_dim=self.hdim_stage[1], cost_dim=self.cost_dim_stage[1]*self.CostNum,
+            context_dim=self.cdim_stage[1], stage_idx=1, UpMask=True)
+
+        self.update_block_depth3 = DiffUpdateBlockDepth(args, 
+             hidden_dim=self.hdim_stage[2], cost_dim=self.cost_dim_stage[2]*self.CostNum,
+            context_dim=self.cdim_stage[2], stage_idx=2, UpMask=True)
         self.update_block = nn.ModuleList([self.update_block_depth1,self.update_block_depth2,self.update_block_depth3])
         self.depthnet = DepthNet()
         self.cost_regularization = CostRegNet_small(in_channels=self.cost_dim_stage[0], base_channels=8)
+        self.up_ratio = 2
+        self.upsample = nn.Sequential(
+            nn.Conv2d(self.cost_dim_stage[2], 64, 3, stride=1, padding=1, dilation=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, self.up_ratio*self.up_ratio*9, 1, stride=1, padding=0, dilation=1, bias=False)
+        )
 
 
-
-    def forward(self, imgs, proj_matrices, depth_values):
+    def forward(self, imgs, proj_matrices, depth_values,depth_gt=None):
         disp_min = depth_values[:, 0, None, None, None]
         disp_max = depth_values[:, -1, None, None, None]
         depth_max_ = 1. / disp_min
@@ -214,7 +230,16 @@ class Effi_MVS(nn.Module):
             features.append(self.feature(img))
         cnet_depth = self.cnet_depth(imgs[:, 0])
         for stage_idx in range(self.num_stage):
-
+            if self.training:
+                depth_gt_stage = depth_gt[f"stage{stage_idx+1}"].unsqueeze(1)
+                _, _, H, W = depth_gt_stage.size()
+                depth_maxs = depth_max_.view(-1,1,1,1).repeat(1,1,H,W)
+                # print(torch.max(depth_gt_stage))
+                depth_gt_stage = torch.where(depth_gt_stage>1e-1, depth_gt_stage, depth_maxs)
+                inv_depth_gt = depth_to_disp(depth_gt_stage, depth_min_, depth_max_)
+            else:
+                inv_depth_gt = None
+            # print("inv_depth_gt.shape",inv_depth_gt.shape)
             features_stage = [feat["stage{}".format(stage_idx + 1)] for feat in features]
             proj_matrices_stage = proj_matrices["stage{}".format(stage_idx + 1)]
             ref_feature = features_stage[0]
@@ -239,11 +264,18 @@ class Effi_MVS(nn.Module):
                 init_depth = init_depth['depth']
                 cur_depth = init_depth.unsqueeze(1)
 
-                depth_predictions = [init_depth.squeeze(1)]
+                depth_predictions = [init_depth]
+                depth_predictions.append(F.interpolate(init_depth.unsqueeze(1).detach(), scale_factor=2, mode='bilinear').squeeze(1))
+                depth_predictions.append(F.interpolate(init_depth.unsqueeze(1).detach(), scale_factor=4, mode='bilinear').squeeze(1))
+                inv_initial_depth = depth_to_disp(cur_depth, depth_min_, depth_max_)
+                inv_cur_depth = inv_initial_depth
             else:
-                cur_depth = depth_predictions[-1].unsqueeze(1)
-            inv_cur_depth = depth_to_disp(cur_depth, depth_min_, depth_max_)
-
+                # cur_depth = depth_predictions[-1].unsqueeze(1)
+                # print("hello cur_depth",cur_depth.shape)
+                # cur_depth=last_inv_depth.detach()
+                inv_cur_depth=last_inv_depth.detach()
+            # inv_cur_depth = depth_to_disp(cur_depth, depth_min_, depth_max_)
+            # print("inv_cur_depth",inv_cur_depth.shape)
             cnet_depth_stage = cnet_depth["stage{}".format(stage_idx + 1)]
 
             hidden_d, inp_d = torch.split(cnet_depth_stage, [self.hdim_stage[stage_idx], self.cdim_stage[stage_idx]], dim=1)
@@ -259,14 +291,30 @@ class Effi_MVS(nn.Module):
             current_hidden_d, up_mask_seqs, inv_depth_seqs = self.update_block[stage_idx](current_hidden_d, depth_cost_func,
                                                                              inv_cur_depth,
                                                                              inp_d, seq_len=self.seq_len[stage_idx],
-                                                                             scale_inv_depth=self.scale_inv_depth)
+                                                                             scale_inv_depth=self.scale_inv_depth,
+                                                                             gt_inv_depth=inv_depth_gt)
+            
 
-            for up_mask_i, inv_depth_i in zip(up_mask_seqs, inv_depth_seqs):
+            # for up_mask_i, inv_depth_i in zip(up_mask_seqs, inv_depth_seqs):
+            #     print("???inv_depth_i",inv_depth_i.shape)
+            #     depth_predictions.append(self.scale_inv_depth(inv_depth_i)[1].squeeze(1))
+            for inv_depth_i in inv_depth_seqs:
+                # print("???inv_depth_i",inv_depth_i.shape)
                 depth_predictions.append(self.scale_inv_depth(inv_depth_i)[1].squeeze(1))
             last_mask = up_mask_seqs[-1]
             last_inv_depth = inv_depth_seqs[-1]
-            inv_depth_up = upsample_depth(last_inv_depth, last_mask, ratio=self.feat_ratio).unsqueeze(1)
-            final_depth = self.scale_inv_depth(inv_depth_up)[1].squeeze(1)
-            depth_predictions.append(final_depth)
-
-        return {"depth": depth_predictions, "photometric_confidence": photometric_confidence}
+            if stage_idx<2:
+                last_inv_depth = F.interpolate(last_inv_depth,
+                                    scale_factor=2, mode='bilinear')
+                # view_weights = F.interpolate(view_weights,
+                #                     scale_factor=2, mode='nearest')
+            
+            # inv_depth_up = upsample_depth(last_inv_depth, last_mask, ratio=self.feat_ratio).unsqueeze(1)
+            # final_depth = self.scale_inv_depth(inv_depth_up)[1].squeeze(1)
+            # depth_predictions.append(final_depth)
+        mask = .25 * self.upsample(ref_feature)
+        depth_upsampled = upsample_depth(last_inv_depth, mask, self.up_ratio).unsqueeze(1)
+        # print("test")
+        # print(depth_upsampled.size())
+        depth_predictions.append(self.scale_inv_depth(depth_upsampled)[1].squeeze(1))
+        return {"depth": depth_predictions, "photometric_confidence": photometric_confidence,"mask_list":up_mask_seqs}

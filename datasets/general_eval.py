@@ -111,7 +111,7 @@ class MVSDataset(Dataset):
 
 
     def __getitem__(self, idx):
-        cv2.setNumThreads(0)
+        cv2.setNumThreads(1)
         cv2.ocl.setUseOpenCL(False)
         global s_h, s_w
         meta = self.metas[idx]
@@ -128,7 +128,7 @@ class MVSDataset(Dataset):
             if not os.path.exists(img_filename):
                 img_filename = os.path.join(self.datapath, '{}/images/{:0>8}.jpg'.format(scan, vid))
 
-            proj_mat_filename = os.path.join(self.datapath, '{}/cams/{:0>8}_cam.txt'.format(scan, vid))
+            proj_mat_filename = os.path.join(self.datapath, '{}/cams_1/{:0>8}_cam.txt'.format(scan, vid))
 
             img = self.read_img(img_filename)
             intrinsics, extrinsics, depth_min, depth_interval = self.read_cam_file(proj_mat_filename, interval_scale=

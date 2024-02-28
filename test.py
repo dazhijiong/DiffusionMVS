@@ -1,5 +1,5 @@
 import argparse, os, time, sys, gc, cv2
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '5'
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -16,10 +16,15 @@ from PIL import Image
 from functools import partial
 import signal
 
-# cv2.setNumThreads(0)
-# cv2.ocl.setUseOpenCL(False)
-os.environ["KMP_BLOCKTIME"] = "0"
-os.environ["OMP_NUM_THREADS"] = "1"
+cv2.setNumThreads(1)
+cv2.ocl.setUseOpenCL(False)
+cpu_num = 1
+os.environ ['OMP_NUM_THREADS'] = str(cpu_num)
+os.environ ['OPENBLAS_NUM_THREADS'] = str(cpu_num)
+os.environ ['MKL_NUM_THREADS'] = str(cpu_num)
+os.environ ['VECLIB_MAXIMUM_THREADS'] = str(cpu_num)
+os.environ ['NUMEXPR_NUM_THREADS'] = str(cpu_num)
+torch.set_num_threads(cpu_num)
 cudnn.benchmark = True
 parser = argparse.ArgumentParser(description='Predict depth, filter, and fuse')
 parser.add_argument('--model', default='mvsnet', help='select model')
@@ -234,7 +239,7 @@ def save_scene_depth(testlist):
                 # print(depth_est.min())
                 #
                 confidence_filename = os.path.join(args.outdir, filename.format('confidence', '.pfm'))
-                cam_filename = os.path.join(args.outdir, filename.format('cams', '_cam.txt'))
+                cam_filename = os.path.join(args.outdir, filename.format('cams_1', '_cam.txt'))
                 img_filename = os.path.join(args.outdir, filename.format('images', '.jpg'))
                 ply_filename = os.path.join(args.outdir, filename.format('ply_local', '.ply'))
                 os.makedirs(depth_filename.rsplit('/', 1)[0], exist_ok=True)
@@ -278,7 +283,7 @@ def reproject_with_depth(depth_ref, intrinsics_ref, extrinsics_ref, depth_src, i
     # find the depth estimation of the source view
     x_src = xy_src[0].reshape([height, width]).astype(np.float32)
     y_src = xy_src[1].reshape([height, width]).astype(np.float32)
-    cv2.setNumThreads(0)
+    cv2.setNumThreads(1)
     cv2.ocl.setUseOpenCL(False)
     sampled_depth_src = cv2.remap(depth_src, x_src, y_src, interpolation=cv2.INTER_LINEAR)
 
@@ -345,7 +350,7 @@ def filter_depth_tank(scan, pair_folder, scan_folder, out_folder, plyfilename):
 
         # load the camera parameters
         ref_intrinsics, ref_extrinsics, ref_depth_max, ref_depth_min = read_camera_parameters(
-            os.path.join(scan_folder, 'cams/{:0>8}_cam.txt'.format(ref_view)))
+            os.path.join(scan_folder, 'cams_1/{:0>8}_cam.txt'.format(ref_view)))
         # load the reference image
         ref_img = read_img(os.path.join(scan_folder, 'images/{:0>8}.jpg'.format(ref_view)))
         # load the estimated depth of the reference view
@@ -367,7 +372,7 @@ def filter_depth_tank(scan, pair_folder, scan_folder, out_folder, plyfilename):
             ct = ct + 1
             # camera parameters of the source view
             src_intrinsics, src_extrinsics, src_depth_max, src_depth_min  = read_camera_parameters(
-                os.path.join(scan_folder, 'cams/{:0>8}_cam.txt'.format(src_view)))
+                os.path.join(scan_folder, 'cams_1/{:0>8}_cam.txt'.format(src_view)))
             # the estimated depth of the source view
             src_depth_est = read_pfm(os.path.join(out_folder, 'depth_est/{:0>8}.pfm'.format(src_view)))[0]
 
@@ -489,7 +494,7 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
     for ref_view, src_views in pair_data:
 
         ref_intrinsics, ref_extrinsics, ref_depth_max, ref_depth_min = read_camera_parameters(
-            os.path.join(scan_folder, 'cams/{:0>8}_cam.txt'.format(ref_view)))
+            os.path.join(scan_folder, 'cams_1/{:0>8}_cam.txt'.format(ref_view)))
         # load the reference image
         ref_img = read_img(os.path.join(scan_folder, 'images/{:0>8}.jpg'.format(ref_view)))
 
@@ -515,7 +520,7 @@ def filter_depth(pair_folder, scan_folder, out_folder, plyfilename):
         for i, src_view in enumerate(src_views):
             # camera parameters of the source view
             src_intrinsics, src_extrinsics, src_depth_max, src_depth_min = read_camera_parameters(
-                os.path.join(scan_folder, 'cams/{:0>8}_cam.txt'.format(src_view)))
+                os.path.join(scan_folder, 'cams_1/{:0>8}_cam.txt'.format(src_view)))
             # the estimated depth of the source view
             src_depth_est = read_pfm(os.path.join(out_folder, 'depth_est/{:0>8}.pfm'.format(src_view)))[0]
 

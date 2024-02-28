@@ -102,7 +102,7 @@ class MVSDataset(Dataset):
         return len(self.metas)
 
     def __getitem__(self, idx):
-        cv2.setNumThreads(0)
+        cv2.setNumThreads(1)
         cv2.ocl.setUseOpenCL(False)
         scan, _, ref_view, src_views, split = self.metas[idx]
         # use only the reference view and first nviews-1 source views
