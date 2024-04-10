@@ -249,7 +249,7 @@ def filter_depth(scene, root_dir, split, out_dir, plyfilename, fusion_exp):
                 os.path.join(root_dir, split, scene, 'cams_{}/{:0>8}_cam.txt'.format(scene.lower(), ref_view)))
         elif args.cam_mode == 'origin':
             ref_intrinsics, ref_extrinsics = read_camera_parameters(
-                os.path.join(root_dir, split, scene, 'cams_1/{:0>8}_cam.txt'.format(ref_view)))
+                os.path.join(root_dir, split, scene, 'cams/{:0>8}_cam.txt'.format(ref_view)))
 
         ref_img = read_img(os.path.join(root_dir, split, scene, 'images/{:0>8}.jpg'.format(ref_view)))
         ref_depth_est = read_pfm(os.path.join(out_dir, scene, 'depth_est/{:0>8}.pfm'.format(ref_view)))[0]
@@ -287,7 +287,7 @@ def filter_depth(scene, root_dir, split, out_dir, plyfilename, fusion_exp):
                     os.path.join(root_dir, split, scene, 'cams_{}/{:0>8}_cam.txt'.format(scene.lower(), src_view)))
             elif args.cam_mode == 'origin':
                 src_intrinsics, src_extrinsics = read_camera_parameters(
-                    os.path.join(root_dir, split, scene, 'cams_1/{:0>8}_cam.txt'.format(src_view)))
+                    os.path.join(root_dir, split, scene, 'cams/{:0>8}_cam.txt'.format(src_view)))
             # the estimated depth of the source view
             src_depth_est = read_pfm(os.path.join(out_dir, scene, 'depth_est/{:0>8}.pfm'.format(src_view)))[0]
 

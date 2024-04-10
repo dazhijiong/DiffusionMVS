@@ -5,7 +5,6 @@
 # @LastEditDate: 2023-09-07
 
 import argparse
-import os
 
 def get_opts():
     parser = argparse.ArgumentParser(description="args")
@@ -64,6 +63,6 @@ def get_opts():
     parser.add_argument('--device', default='cuda', help='device to use')
     parser.add_argument('--seed', type=int, default=1, metavar='S', help='random seed')
     parser.add_argument('--pin_m', action='store_true', help='data loader pin memory')
-    parser.add_argument("--local_rank", type=int,default=os.getenv('LOCAL_RANK', -1))
+    parser.add_argument("--local_rank", type=int, default=0)
 
     return parser.parse_args()
