@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 # DTU
-DTU_TRAIN_ROOT="[/path/to/]dtu"
-DTU_TEST_ROOT="[/path/to/]dtu-test"
+DTU_TRAIN_ROOT="/mnt/nas_8/datasets/dtu_all/mvs_training/dtu_training"
+DTU_TEST_ROOT="/home/zhanghanzhi/dtu-test-1200/"
 DTU_QUANTITATIVE_ROOT="[/path/to/]dtu-evaluation"
 
 # Tanks and Temples
-TNT_ROOT="[/path/to/]tnt"
+TNT_ROOT="/mnt/nas_7/datasets/TankandTemples/"
 
 # BlendedMVS
-BLENDEDMVS_ROOT="[/path/to/]blendmvs"
+BLENDEDMVS_ROOT="/mnt/nas_7/datasets/BlendedMVS"

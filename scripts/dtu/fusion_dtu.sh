@@ -20,7 +20,7 @@ python3 fusions/dtu/pcd.py ${@} \
 elif [ $FUSION_METHOD = "gipuma" ] ; then
 # source [/path/to/]anaconda3/etc/profile.d/conda.sh
 # conda activate fusibile
-CUDA_VISIBLE_DEVICES=0 python2 fusions/dtu/gipuma.py \
+CUDA_VISIBLE_DEVICES=6 python2 fusions/dtu/gipuma.py \
     --root_dir=$DTU_TEST_ROOT --list_file="datasets/lists/dtu/test.txt" \
     --fusibile_exe_path="fusions/fusibile" --out_folder="fusibile_fused" \
     --depth_folder=$DTU_OUT_DIR \
@@ -31,7 +31,7 @@ CUDA_VISIBLE_DEVICES=0 python2 fusions/dtu/gipuma.py \
     --plydir=$DTU_OUT_DIR"/gipuma_fusion_plys/"
 
 elif [ $FUSION_METHOD = "open3d" ] ; then
-CUDA_VISIBLE_DEVICES=0 python fusions/dtu/_open3d.py --device="cuda" \
+CUDA_VISIBLE_DEVICES=6 python fusions/dtu/_open3d.py --device="cuda" \
     --root_path=$DTU_TEST_ROOT \
     --depth_path=$DTU_OUT_DIR \
     --data_list="datasets/lists/dtu/test.txt" \

@@ -22,7 +22,8 @@ from models.loss import geomvsnet_loss
 from models.utils import *
 from models.utils.opts import get_opts
 
-
+OMP_NUM_THREADS=1 
+MKL_NUM_THREADS=1
 cudnn.benchmark = True
 num_gpus = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
 is_distributed = num_gpus > 1
@@ -125,7 +126,8 @@ def train_sample(model, model_loss, optimizer, sample, args):
     outputs = model(
         sample_cuda["imgs"], 
         sample_cuda["proj_matrices"], sample_cuda["intrinsics_matrices"], 
-        sample_cuda["depth_values"]
+        sample_cuda["depth_values"],
+        depth_gt_ms
     )
 
     depth_est = outputs["depth"]
@@ -185,7 +187,8 @@ def test_sample_depth(model, model_loss, sample, args):
     outputs = model_eval(
         sample_cuda["imgs"], 
         sample_cuda["proj_matrices"], sample_cuda["intrinsics_matrices"], 
-        sample_cuda["depth_values"]
+        sample_cuda["depth_values"],
+        depth_gt_ms
     )
     
     depth_est = outputs["depth"]
@@ -316,9 +319,10 @@ if __name__ == '__main__':
     if is_distributed:
         if dist.get_rank() == 0:
             logger.info("Let's use {} GPUs in distributed mode!".format(torch.cuda.device_count()))
+        print("local_rank",args.local_rank)
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[args.local_rank], output_device=args.local_rank,
-            find_unused_parameters=True,
+            find_unused_parameters=True,broadcast_buffers=False
         )
     else:
         if torch.cuda.is_available():

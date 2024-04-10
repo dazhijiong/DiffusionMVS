@@ -8,11 +8,39 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from tqdm.auto import tqdm
 from models.submodules import homo_warping, init_inverse_range, schedule_inverse_range, FPN, Reg2d
 from models.geometry import GeoFeatureFusion, GeoRegNet2d
 from models.filter import frequency_domain_filter
 
+def exists(x):
+    return x is not None
+
+
+def default(val, d):
+    if exists(val):
+        return val
+    return d() if callable(d) else d
+
+
+def extract(a, t, x_shape):
+    """extract the appropriate  t  index for a batch of indices"""
+    batch_size = t.shape[0]
+    out = a.gather(-1, t)
+    return out.reshape(batch_size, *((1,) * (len(x_shape) - 1)))
+
+
+def cosine_beta_schedule(timesteps, s=0.008):
+    """
+    cosine schedule
+    as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
+    """
+    steps = timesteps + 1
+    x = torch.linspace(0, timesteps, steps, dtype=torch.float64)
+    alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
+    alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+    betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+    return torch.clip(betas, 0, 0.999)
 
 class GeoMVSNet(nn.Module):
     def __init__(self, levels, hypo_plane_num_stages, depth_interal_ratio_stages, 
@@ -47,9 +75,53 @@ class GeoMVSNet(nn.Module):
 
         # frequency domain filter settings
         self.curriculum_learning_rho_ratios = [9, 4, 2, 1]
+        # define alphas 
+        self.ddim_sampling_eta = 0.01
+        self.scale = 1
+        self.timesteps = 1000
+        self.iters=3
+        sampling_timesteps = 1
+        self.sampling_timesteps = default(sampling_timesteps, self.timesteps) # default num sampling timesteps to number of timesteps at training
+        betas = cosine_beta_schedule(timesteps=self.timesteps).float()
+        alphas = 1. - betas
+        alphas_cumprod = torch.cumprod(alphas, axis=0)
+        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+        sqrt_recip_alphas = torch.sqrt(1.0 / alphas)
+        sqrt_recip_alphas_cumprod = torch.sqrt(1. / alphas_cumprod)
+        sqrt_recipm1_alphas_cumprod = torch.sqrt(1. / alphas_cumprod - 1)
+        # calculations for diffusion q(x_t | x_{t-1}) and others
+        sqrt_alphas_cumprod = torch.sqrt(alphas_cumprod)
+        sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - alphas_cumprod)
+        log_one_minus_alphas_cumprod = torch.log(1. - alphas_cumprod)
+        # calculations for posterior q(x_{t-1} | x_t, x_0)
+        posterior_variance = betas * (1. - alphas_cumprod_prev) / (1. - alphas_cumprod)
+        self.register_buffer('betas', betas)
+        self.register_buffer('alphas_cumprod', alphas_cumprod)
+        self.register_buffer('alphas_cumprod_prev', alphas_cumprod_prev)
+        self.register_buffer('sqrt_alphas_cumprod', sqrt_alphas_cumprod)
+        self.register_buffer('sqrt_one_minus_alphas_cumprod', sqrt_one_minus_alphas_cumprod)
+        self.register_buffer('log_one_minus_alphas_cumprod', log_one_minus_alphas_cumprod)
+        self.register_buffer('sqrt_recip_alphas', sqrt_recip_alphas)
+        self.register_buffer('sqrt_recip_alphas_cumprod', sqrt_recip_alphas_cumprod)
+        self.register_buffer('sqrt_recipm1_alphas_cumprod', sqrt_recipm1_alphas_cumprod)
+        self.register_buffer('posterior_variance', posterior_variance)
 
+    def q_sample(self, x_start, t, noise=None):
+        if noise is None:
+            noise = self.scale*torch.randn_like(x_start)
 
-    def forward(self, imgs, proj_matrices, intrinsics_matrices, depth_values, filename=None):
+        sqrt_alphas_cumprod_t = extract(self.sqrt_alphas_cumprod, t, x_start.shape)
+        sqrt_one_minus_alphas_cumprod_t = extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
+
+        return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
+
+    def predict_noise_from_start(self, x_t, t, x0):
+        return (
+                (extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - x0) /
+                extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
+        )
+
+    def forward(self, imgs, proj_matrices, intrinsics_matrices, depth_values, depth_gt_ms=None,filename=None):
         
         features = []
         if self.coarest_separate_flag:
@@ -62,6 +134,7 @@ class GeoMVSNet(nn.Module):
         
         # coarse-to-fine
         outputs = {}
+        depth_last=None
         for stage_idx in range(self.levels):
             stage_name = "stage{}".format(stage_idx + 1)
             B, C, H, W = features[0][stage_name].shape
@@ -110,15 +183,92 @@ class GeoMVSNet(nn.Module):
                 depth_interal_ratio=self.depth_interal_ratio_stages[stage_idx], 
                 geo_reg_data=geo_reg_data
             )
-
+           
 
             # @Note frequency domain filter
-            depth_est = outputs_stage['depth']
-            depth_est_filtered = frequency_domain_filter(depth_est, rho_ratio=self.curriculum_learning_rho_ratios[stage_idx])
+            depth_est = outputs_stage['depth']            
+            batch_size = depth_est.shape[0]
+            if self.training:
+                depth_gt=depth_gt_ms["stage{}".format(stage_idx+1)]
+            ### Diffusion forward 正向过程
+                # print("inv_depth",depth_est.shape)
+                # print("gt_inv_depth",depth_gt.shape)
+                gt_delta_inv_depth = depth_gt - depth_est#compute the ground truth depth residual x0
+
+                gt_delta_inv_depth = torch.where(torch.isinf(gt_delta_inv_depth), torch.zeros_like(gt_delta_inv_depth), gt_delta_inv_depth)
+                gt_delta_inv_depth = gt_delta_inv_depth.detach()
+
+                t = torch.randint(0, self.timesteps, (batch_size,), device=depth_est.device).long()
+                noise = (self.scale*torch.randn_like(gt_delta_inv_depth)).float()
+
+                delta_inv_depth = self.q_sample(x_start=gt_delta_inv_depth, t=t, noise=noise)#x_t
+                inv_depth_new = depth_est + delta_inv_depth
+                inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1)
+                for i in range(self.iters):
+                    delta_inv_depth = delta_inv_depth.detach()
+                    inv_depth_new = inv_depth_new.detach()
+                    delta_inv_depth_filtered = frequency_domain_filter(delta_inv_depth, rho_ratio=self.curriculum_learning_rho_ratios[stage_idx])
+                    
+                    depth_est_filtered = depth_est + delta_inv_depth_filtered
+                    depth_est_filtered = torch.clamp(depth_est_filtered, min=0, max=1)
+                    
+                    
+                    # inv_depth_list.append(inv_depth_new)
+            else:
+                print("not train")
+                batch, device, total_timesteps, sampling_timesteps, eta = batch_size, depth_est.device, self.timesteps, self.sampling_timesteps, self.ddim_sampling_eta
+                print("total_timesteps",total_timesteps)
+                times = torch.linspace(-1, total_timesteps - 1, steps=sampling_timesteps + 1)   # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
+                times = list(reversed(times.int().tolist()))
+                time_pairs = list(zip(times[:-1], times[1:])) # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
+
+                img = (self.scale*torch.randn_like(depth_est)).float()
+                for time, time_next in tqdm(time_pairs, desc = 'sampling loop time step'):
+                    t = torch.full((batch,), time, device=device, dtype=torch.long)
+
+                    inv_depth_list = [] 
+                    mask_list = []
+
+                    delta_inv_depth = img
+                    inv_depth_new = depth_est + delta_inv_depth
+                    inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1)
+                    
+                    for i in range(self.iters):
+                        # delta_inv_depth = delta_inv_depth.float()
+                        delta_inv_depth = delta_inv_depth.detach()
+                        inv_depth_new = inv_depth_new.detach()
+                    delta_inv_depth_filtered = frequency_domain_filter(delta_inv_depth, rho_ratio=self.curriculum_learning_rho_ratios[stage_idx])
+                    
+                    depth_est_filtered = depth_est + delta_inv_depth_filtered
+                    depth_est_filtered = torch.clamp(depth_est_filtered, min=0, max=1)
+                pred_noise = self.predict_noise_from_start(img, t, delta_inv_depth)
+                if time_next < 0:
+                    delta_inv_depth = delta_inv_depth
+                    outputs_stage['depth_filtered'] = depth_est_filtered
+                    depth_last = depth_est_filtered
+                    
+                    confidence_last = outputs_stage['photometric_confidence']
+                    prob_volume_last = outputs_stage['prob_volume']
+
+                    outputs[stage_name] = outputs_stage
+                    outputs.update(outputs_stage)
+                    continue
+                alpha = self.alphas_cumprod[time]
+                alpha_next = self.alphas_cumprod[time_next]
+
+                sigma = eta * ((1 - alpha / alpha_next) * (1 - alpha_next) / (1 - alpha)).sqrt()#ddim
+                c = (1 - alpha_next - sigma ** 2).sqrt()
+
+                noise = (self.scale*torch.randn_like(depth_est)).float()
+
+                img = delta_inv_depth * alpha_next.sqrt() + \
+                    c * pred_noise + \
+                    sigma * noise
+
+            print("depth_last!!!!!!!")
             outputs_stage['depth_filtered'] = depth_est_filtered
             depth_last = depth_est_filtered
-
-
+            
             confidence_last = outputs_stage['photometric_confidence']
             prob_volume_last = outputs_stage['prob_volume']
 

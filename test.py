@@ -38,7 +38,7 @@ def test():
                 sample_cuda["imgs"], 
                 sample_cuda["proj_matrices"], sample_cuda["intrinsics_matrices"], 
                 sample_cuda["depth_values"], 
-                sample["filename"]
+                sample["filename"],
             )
 
             end_time = time.time()

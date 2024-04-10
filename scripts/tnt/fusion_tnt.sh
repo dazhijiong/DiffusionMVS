@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 source scripts/data_path.sh
 
-THISNAME="blend/geomvsnet"
+THISNAME="blend"
 
 LOG_DIR="./checkpoints/tnt/"$THISNAME 
 TNT_OUT_DIR="./outputs/tnt/"$THISNAME
