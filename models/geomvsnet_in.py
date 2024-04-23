@@ -231,7 +231,7 @@ class GeoMVSNet(nn.Module):
                         delta_inv_depth = delta_inv_depth.detach()
                         inv_depth_new = inv_depth_new.detach()
                         outputs_stage = self.StageNet(
-                            stage_idx, features_stage, proj_matrices_stage, depth_hypo=inv_depth_new, #depth_hypo
+                            stage_idx, features_stage, proj_matrices_stage, depth_hypo=inv_depth_new, #depth_hypo改了
                             regnet=self.RegNet_stages[stage_idx], group_cor_dim=self.group_cor_dim_stages[stage_idx], 
                             depth_interal_ratio=self.depth_interal_ratio_stages[stage_idx], 
                             geo_reg_data=geo_reg_data
