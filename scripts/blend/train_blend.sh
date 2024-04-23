@@ -8,8 +8,8 @@ if [ ! -d $LOG_DIR ]; then
     mkdir -p $LOG_DIR
 fi
 
-CUDA_VISIBLE_DEVICES=6,7 python3 -m torch.distributed.run --nproc_per_node=2 train.py ${@} \
-    --which_dataset="blendedmvs" --epochs=10 --logdir=$LOG_DIR \
+CUDA_VISIBLE_DEVICES=5 python3 -m torch.distributed.run --nproc_per_node=1 train.py ${@} \
+    --which_dataset="blendedmvs" --epochs=16 --logdir=$LOG_DIR \
      --trainpath=$BLENDEDMVS_ROOT --testpath=$BLENDEDMVS_ROOT \
     --trainlist="datasets/lists/blendedmvs/low_res_all.txt" --testlist="datasets/lists/blendedmvs/val.txt" \
     --resume \

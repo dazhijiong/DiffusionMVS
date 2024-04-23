@@ -2,14 +2,14 @@
 source scripts/data_path.sh
 
 THISNAME="blend/geomvsnet"
-BESTEPOCH="09"
+BESTEPOCH="15"
 
 LOG_DIR="./checkpoints/"$THISNAME
 CKPT_FILE=$LOG_DIR"/model_"$BESTEPOCH".ckpt"
 TNT_OUT_DIR="./outputs/tnt/"$THISNAME
 
 # Intermediate
-CUDA_VISIBLE_DEVICES=6 python3 test.py ${@} \
+CUDA_VISIBLE_DEVICES=5 python3 test.py ${@} \
     --which_dataset="tnt" --loadckpt=$CKPT_FILE --batch_size=1 \
     --outdir=$TNT_OUT_DIR --logdir=$LOG_DIR --nolog \
     --testpath=$TNT_ROOT --testlist="datasets/lists/tnt/intermediate.txt" --split="intermediate" \
@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES=6 python3 test.py ${@} \
     --n_views="11" --img_mode="resize" --cam_mode="origin"
 
 # Advanced
-CUDA_VISIBLE_DEVICES=7 python3 test.py ${@} \
+CUDA_VISIBLE_DEVICES=5 python3 test.py ${@} \
     --which_dataset="tnt" --loadckpt=$CKPT_FILE --batch_size=1 \
     --outdir=$TNT_OUT_DIR --logdir=$LOG_DIR --nolog \
     --testpath=$TNT_ROOT --testlist="datasets/lists/tnt/advanced.txt" --split="advanced" \

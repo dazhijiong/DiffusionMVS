@@ -122,7 +122,7 @@ class GeoMVSNet(nn.Module):
         )
 
     def forward(self, imgs, proj_matrices, intrinsics_matrices, depth_values, depth_gt_ms=None,filename=None):
-        print("depth_values",depth_values)
+        
         features = []
         if self.coarest_separate_flag:
             coarsest_features = []
@@ -183,10 +183,6 @@ class GeoMVSNet(nn.Module):
             if self.training:
                 depth_gt=depth_gt_ms["stage{}".format(stage_idx+1)]
                 depth_gt_tmp=depth_gt.unsqueeze(1).repeat(1,D,1,1)
-                print("depth_gt",depth_gt.shape)
-                # print("depth_values",depth_values.shape)
-                # print("depth_hypo",depth_hypo.shape)
-                # print("depth_gt_tmp",depth_gt_tmp.shape)
                 gt_delta_inv_depth = depth_gt_tmp - inv_depth#compute the ground truth depth residual x0
                 gt_delta_inv_depth = torch.where(torch.isinf(gt_delta_inv_depth), torch.zeros_like(gt_delta_inv_depth), gt_delta_inv_depth)
                 gt_delta_inv_depth = gt_delta_inv_depth.detach()
@@ -209,8 +205,9 @@ class GeoMVSNet(nn.Module):
                         geo_reg_data=geo_reg_data
                     )
                     # print("inv_depth2",inv_depth.shape)
-                    print("outputs_stage['depth']",outputs_stage['depth'].shape)
-                    inv_depth_new = inv_depth + outputs_stage['depth'].unsqueeze(1).repeat(1,D,1,1)
+                    # print("outputs_stage['depth']",outputs_stage['depth'].shape)
+                    delta_inv_depth = outputs_stage['depth_hypo']
+                    inv_depth_new = inv_depth +  delta_inv_depth
                     
                     # inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1)
             else:
@@ -228,24 +225,25 @@ class GeoMVSNet(nn.Module):
 
                     delta_inv_depth = img
                     inv_depth_new = inv_depth + delta_inv_depth
-                    # inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1)
-                    
+                    inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1000)
                     for i in range(self.iters):
                         # delta_inv_depth = delta_inv_depth.float()
                         delta_inv_depth = delta_inv_depth.detach()
                         inv_depth_new = inv_depth_new.detach()
                         outputs_stage = self.StageNet(
-                            stage_idx, features_stage, proj_matrices_stage, depth_hypo=inv_depth_new, 
+                            stage_idx, features_stage, proj_matrices_stage, depth_hypo=inv_depth_new, #depth_hypo
                             regnet=self.RegNet_stages[stage_idx], group_cor_dim=self.group_cor_dim_stages[stage_idx], 
                             depth_interal_ratio=self.depth_interal_ratio_stages[stage_idx], 
                             geo_reg_data=geo_reg_data
                         )
-                        inv_depth_new = inv_depth +  outputs_stage['depth'].unsqueeze(1).repeat(1,D,1,1)
-                        # inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1)
+                        delta_inv_depth = outputs_stage['depth_hypo']
+                        print("depth_hypo",delta_inv_depth)
+                        print("depth",outputs_stage["depth"])
+                        inv_depth_new = inv_depth +  delta_inv_depth
+                        inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1000)
                     pred_noise = self.predict_noise_from_start(img, t, delta_inv_depth)
 
                     if time_next < 0:
-                        print("time_next",time_next)
                         delta_inv_depth = delta_inv_depth
                         continue
 
@@ -290,7 +288,6 @@ class StageNet(nn.Module):
         proj_matrices = torch.unbind(proj_matrices, 1)
         ref_feature, src_features = features[0], features[1:]
         ref_proj, src_projs = proj_matrices[0], proj_matrices[1:]
-        print("depth_hypo",depth_hypo)
         B, D, H, W = depth_hypo.shape
         C = ref_feature.shape[1]
 

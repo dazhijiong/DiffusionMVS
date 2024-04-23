@@ -122,7 +122,7 @@ class TNTDataset(Dataset):
                 # can only use for Intermediate
                 proj_mat_filename = os.path.join(self.root_dir, self.split, scan, f'cams_{scan.lower()}/{vid:08d}_cam.txt')
             elif self.cam_mode == 'origin':
-                proj_mat_filename = os.path.join(self.root_dir, self.split, scan, f'cams/{vid:08d}_cam.txt')
+                proj_mat_filename = os.path.join(self.root_dir, self.split, scan, f'cams_1/{vid:08d}_cam.txt')
 
             img = self.read_img(img_filename)
 

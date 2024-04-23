@@ -168,7 +168,7 @@ def train_sample(model, model_loss, optimizer, sample, args):
 
     if is_distributed:
         scalar_outputs = reduce_scalar_outputs(scalar_outputs)
-
+    print("loss",loss)
     return tensor2float(scalar_outputs["loss"]), tensor2float(scalar_outputs), tensor2numpy(image_outputs)
 
 
