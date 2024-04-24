@@ -122,7 +122,7 @@ class GeoMVSNet(nn.Module):
         )
 
     def forward(self, imgs, proj_matrices, intrinsics_matrices, depth_values, depth_gt_ms=None,filename=None):
-        print("depth_values",depth_values)
+        
         features = []
         if self.coarest_separate_flag:
             coarsest_features = []
@@ -135,11 +135,24 @@ class GeoMVSNet(nn.Module):
         # coarse-to-fine
         outputs = {}
         depth_last=None
+        inv_depth=None
+        D0=None
+        depth_hypo=None
         for stage_idx in range(self.levels):
             stage_name = "stage{}".format(stage_idx + 1)
             B, C, H, W = features[0][stage_name].shape
             proj_matrices_stage = proj_matrices[stage_name]
             intrinsics_matrices_stage = intrinsics_matrices[stage_name]
+
+
+            # @Note depth hypos
+            if stage_idx == 0:
+                depth_hypo = init_inverse_range(depth_values, self.hypo_plane_num_stages[stage_idx], img[0].device, img[0].dtype, H, W)
+                inv_depth=depth_hypo.detach()
+            else:
+                inverse_min_depth, inverse_max_depth = outputs_stage['inverse_min_depth'].detach(), outputs_stage['inverse_max_depth'].detach()
+                depth_hypo = schedule_inverse_range(inverse_min_depth, inverse_max_depth, self.hypo_plane_num_stages[stage_idx], H, W)  # B D H W
+
 
             # @Note features
             if stage_idx == 0:
@@ -147,10 +160,12 @@ class GeoMVSNet(nn.Module):
                     features_stage = [feat[stage_name] for feat in coarsest_features]
                 else:
                     features_stage = [feat[stage_name] for feat in features]
-            elif stage_idx >= 1:
+                
+            else:
                 features_stage = [feat[stage_name] for feat in features]
                 
                 ref_img_stage = F.interpolate(imgs[0], size=None, scale_factor=1./2**(3-stage_idx), mode="bilinear", align_corners=False)
+                
                 depth_last = F.interpolate(depth_last.unsqueeze(1), size=None, scale_factor=2, mode="bilinear", align_corners=False)
                 confidence_last = F.interpolate(confidence_last.unsqueeze(1), size=None, scale_factor=2, mode="bilinear", align_corners=False)
                 
@@ -159,16 +174,9 @@ class GeoMVSNet(nn.Module):
                     ref_img_stage, depth_last, confidence_last, depth_values, 
                     stage_idx, features_stage[0], intrinsics_matrices_stage
                 )
+                inv_depth=depth_last.detach()
+                inv_depth=inv_depth.repeat(1,depth_hypo.shape[1],1,1)
 
-
-            # @Note depth hypos
-            if stage_idx == 0:
-                depth_hypo = init_inverse_range(depth_values, self.hypo_plane_num_stages[stage_idx], img[0].device, img[0].dtype, H, W)
-            else:
-                inverse_min_depth, inverse_max_depth = outputs_stage['inverse_min_depth'].detach(), outputs_stage['inverse_max_depth'].detach()
-                depth_hypo = schedule_inverse_range(inverse_min_depth, inverse_max_depth, self.hypo_plane_num_stages[stage_idx], H, W)  # B D H W
-
-            
             # @Note cost regularization
             geo_reg_data = {}
             if self.geo_reg_flag:
@@ -176,17 +184,12 @@ class GeoMVSNet(nn.Module):
                 if stage_idx >= 1 and self.geo_reg_encodings[stage_idx] == 'z':
                     prob_volume_last = F.interpolate(prob_volume_last, size=None, scale_factor=2, mode="bilinear", align_corners=False)
                     geo_reg_data["prob_volume_last"] = prob_volume_last
-            
-            batch_size = depth_hypo.shape[0]
-            D=depth_hypo.shape[1]
-            inv_depth=depth_hypo
+            # inv_depth=depth_hypo.detach()
+            batch_size = inv_depth.shape[0]
+            D0=inv_depth.shape[1]
             if self.training:
                 depth_gt=depth_gt_ms["stage{}".format(stage_idx+1)]
-                depth_gt_tmp=depth_gt.unsqueeze(1).repeat(1,D,1,1)
-                print("depth_gt",depth_gt.shape)
-                # print("depth_values",depth_values.shape)
-                # print("depth_hypo",depth_hypo.shape)
-                # print("depth_gt_tmp",depth_gt_tmp.shape)
+                depth_gt_tmp=depth_gt.unsqueeze(1).repeat(1,D0,1,1)
                 gt_delta_inv_depth = depth_gt_tmp - inv_depth#compute the ground truth depth residual x0
                 gt_delta_inv_depth = torch.where(torch.isinf(gt_delta_inv_depth), torch.zeros_like(gt_delta_inv_depth), gt_delta_inv_depth)
                 gt_delta_inv_depth = gt_delta_inv_depth.detach()
@@ -195,7 +198,7 @@ class GeoMVSNet(nn.Module):
 
                 delta_inv_depth = self.q_sample(x_start=gt_delta_inv_depth, t=t, noise=noise)#x_t
                 inv_depth_new = inv_depth + delta_inv_depth
-                # inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1)
+                inv_depth_new = 1000*F.normalize(inv_depth_new, dim=0)
                 for i in range(self.iters):
                     # delta_inv_depth = delta_inv_depth.detach()
                     delta_inv_depth = delta_inv_depth.detach()
@@ -209,10 +212,10 @@ class GeoMVSNet(nn.Module):
                         geo_reg_data=geo_reg_data
                     )
                     # print("inv_depth2",inv_depth.shape)
-                    print("outputs_stage['depth']",outputs_stage['depth'].shape)
-                    inv_depth_new = inv_depth + outputs_stage['depth'].unsqueeze(1).repeat(1,D,1,1)
-                    
-                    # inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1)
+                    # print("outputs_stage['depth']",outputs_stage['depth'].shape)
+                    delta_inv_depth = outputs_stage['depth']
+                    inv_depth_new = inv_depth +  delta_inv_depth
+                    inv_depth_new = 1000*F.normalize(inv_depth_new, dim=0)
             else:
                 batch, device, total_timesteps, sampling_timesteps, eta = batch_size, depth_values.device, self.timesteps, self.sampling_timesteps, self.ddim_sampling_eta
 
@@ -228,24 +231,24 @@ class GeoMVSNet(nn.Module):
 
                     delta_inv_depth = img
                     inv_depth_new = inv_depth + delta_inv_depth
-                    # inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1)
                     
                     for i in range(self.iters):
                         # delta_inv_depth = delta_inv_depth.float()
                         delta_inv_depth = delta_inv_depth.detach()
                         inv_depth_new = inv_depth_new.detach()
                         outputs_stage = self.StageNet(
-                            stage_idx, features_stage, proj_matrices_stage, depth_hypo=inv_depth_new, 
+                            stage_idx, features_stage, proj_matrices_stage, depth_hypo=inv_depth_new, #depth_hypo改了
                             regnet=self.RegNet_stages[stage_idx], group_cor_dim=self.group_cor_dim_stages[stage_idx], 
                             depth_interal_ratio=self.depth_interal_ratio_stages[stage_idx], 
                             geo_reg_data=geo_reg_data
                         )
-                        inv_depth_new = inv_depth +  outputs_stage['depth'].unsqueeze(1).repeat(1,D,1,1)
-                        # inv_depth_new = torch.clamp(inv_depth_new, min=0, max=1)
+                        delta_inv_depth = outputs_stage['depth']
+                        print("delta_inv_depth",delta_inv_depth)
+                        inv_depth_new = inv_depth +  delta_inv_depth
+                        
                     pred_noise = self.predict_noise_from_start(img, t, delta_inv_depth)
 
                     if time_next < 0:
-                        print("time_next",time_next)
                         delta_inv_depth = delta_inv_depth
                         continue
 
@@ -290,7 +293,6 @@ class StageNet(nn.Module):
         proj_matrices = torch.unbind(proj_matrices, 1)
         ref_feature, src_features = features[0], features[1:]
         ref_proj, src_projs = proj_matrices[0], proj_matrices[1:]
-        print("depth_hypo",depth_hypo)
         B, D, H, W = depth_hypo.shape
         C = ref_feature.shape[1]
 
@@ -306,7 +308,7 @@ class StageNet(nn.Module):
             ref_proj_new = ref_proj[:, 0].clone()
             ref_proj_new[:, :3, :4] = torch.matmul(ref_proj[:, 1, :3, :3], ref_proj[:, 0, :3, :4])
             warped_src = homo_warping(src_fea, src_proj_new, ref_proj_new, depth_hypo)  # B C D H W
-
+            
             warped_src = warped_src.reshape(B, group_cor_dim, C//group_cor_dim, D, H, W)
             ref_volume = ref_volume.reshape(B, group_cor_dim, C//group_cor_dim, D, H, W)
             cor_feat = (warped_src * ref_volume).mean(2)  # B G D H W
