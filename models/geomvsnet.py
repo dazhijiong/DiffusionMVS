@@ -193,12 +193,11 @@ class GeoMVSNet(nn.Module):
                 gt_delta_inv_depth = depth_gt_tmp - inv_depth#compute the ground truth depth residual x0
                 gt_delta_inv_depth = torch.where(torch.isinf(gt_delta_inv_depth), torch.zeros_like(gt_delta_inv_depth), gt_delta_inv_depth)
                 gt_delta_inv_depth = gt_delta_inv_depth.detach()
-                t = torch.randint(0, self.timesteps, (batch_size,), device=depth_hypo.device).long()
+                t = torch.randint(0, self.timesteps, (batch_size,), device=inv_depth.device).long()
                 noise = (self.scale*torch.randn_like(gt_delta_inv_depth)).float()
 
                 delta_inv_depth = self.q_sample(x_start=gt_delta_inv_depth, t=t, noise=noise)#x_t
                 inv_depth_new = inv_depth + delta_inv_depth
-                inv_depth_new = 1000*F.normalize(inv_depth_new, dim=0)
                 for i in range(self.iters):
                     # delta_inv_depth = delta_inv_depth.detach()
                     delta_inv_depth = delta_inv_depth.detach()
@@ -213,11 +212,10 @@ class GeoMVSNet(nn.Module):
                     )
                     # print("inv_depth2",inv_depth.shape)
                     # print("outputs_stage['depth']",outputs_stage['depth'].shape)
-                    delta_inv_depth = outputs_stage['depth']
+                    delta_inv_depth = outputs_stage['depth'].unsqueeze(1).repeat(1,D0,1,1)
                     inv_depth_new = inv_depth +  delta_inv_depth
-                    inv_depth_new = 1000*F.normalize(inv_depth_new, dim=0)
             else:
-                batch, device, total_timesteps, sampling_timesteps, eta = batch_size, depth_values.device, self.timesteps, self.sampling_timesteps, self.ddim_sampling_eta
+                batch, device, total_timesteps, sampling_timesteps, eta = batch_size, inv_depth.device, self.timesteps, self.sampling_timesteps, self.ddim_sampling_eta
 
                 times = torch.linspace(-1, total_timesteps - 1, steps=sampling_timesteps + 1)   # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
                 times = list(reversed(times.int().tolist()))
