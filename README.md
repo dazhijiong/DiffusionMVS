@@ -1,9 +1,55 @@
-# Effi-MVS (CVPR2022)
-official source code of paper 'Efficient Multi-view Stereo by Iterative Dynamic Cost Volume'
+# Multi-view Depth Estimation Based on Diffusion Models  
+
+This repository contains the implementation of the undergraduate thesis **"Multi-view Depth Estimation Based on Diffusion Models"** at Zhejiang University.  
+The project is based on the open-source implementation of **Effi-MVS (CVPR2022)**, with improvements that introduce a **Conditional Diffusion Model** and a multi-stage GRU network into the multi-view stereo framework.  
+
+By modeling the coarse-to-fine depth refinement process as an **iterative denoising process**, our method improves the accuracy of depth estimation while maintaining the efficiency and lightweight characteristics of Effi-MVS, and also mitigates the risk of local minima in depth prediction.  
+
 ![](imgs/structure_teaser.jpg)
 
-## Introduction
-An efficient framework for high-resolution multi-view stereo. This work aims to improve the accuracy and reduce the consumption at the same time.  If you find this project useful for your research, please cite: 
+---
+
+## Differences from Effi-MVS  
+
+- **Effi-MVS**:  
+  - Proposed an efficient multi-view stereo framework with iterative dynamic cost volume and lightweight 3D CNN.  
+  - Focused on efficiency and low computation cost, showing strong performance on DTU and Tanks & Temples datasets.  
+
+- **This project (Effi-MVS + Diffusion)**:  
+  - Introduces **diffusion models** into Effi-MVS, treating the depth refinement stage as a denoising process.  
+  - Conditional inputs include reference image context features, current depth estimates, and dynamic cost volumes.  
+  - A GRU structure is adopted to accelerate convergence, yielding higher accuracy in depth prediction.  
+  - Achieves significant improvements on Tanks & Temples F-score, while preserving inference efficiency.  
+
+---
+
+## Experimental Results  
+
+### DTU Dataset  
+
+| Method                 | Acc. (mm) ↓ | Comp. (mm) ↓ | Overall (mm) ↓ |
+|------------------------|-------------|--------------|----------------|
+| Effi-MVS               | 0.321       | 0.313        | 0.317          |
+| **Effi-MVS + Diffusion (Ours)** | 0.314       | 0.317        | 0.316          |
+
+---
+
+### Tanks & Temples Dataset  
+
+| Method                 | Intermediate F-score ↑ | Advanced F-score ↑ |
+|------------------------|------------------------|---------------------|
+| Effi-MVS               | 56.88                 | 34.39              |
+| **Effi-MVS + Diffusion (Ours)** | **60.19 (+3.3)**       | **37.47 (+3.1)**  |
+
+➡️ On the Tanks & Temples advanced set, our approach improves F-score by nearly **9%**, delivering finer reconstruction quality.  
+
+---
+
+## Original Effi-MVS Description (Preserved)  
+
+### Introduction  
+An efficient framework for high-resolution multi-view stereo. This work aims to improve the accuracy and reduce the consumption at the same time.  
+If you find this project useful for your research, please cite:  
 
 ```
 @inproceedings{wang2022efficient,
@@ -13,100 +59,45 @@ An efficient framework for high-resolution multi-view stereo. This work aims to 
   pages={8655--8664},
   year={2022}
 }
-```
+```  
 
-## Installation
-### Requirements
-* python 3.8
-* CUDA >= 11.1
-```
+---
+
+## Installation  
+
+### Requirements  
+* python 3.8  
+* CUDA >= 11.1  
+
+```bash
 pip install -r requirements.txt
-```
+```  
 
-## Reproducing Results
-* Download pre-processed datasets (provided by PatchmatchNet): [DTU's evaluation set](https://drive.google.com/file/d/1jN8yEQX0a-S22XwUjISM8xSJD39pFLL_/view?usp=sharing), [Tanks & Temples](https://drive.google.com/file/d/1gAfmeoGNEFl9dL4QcAU4kF0BAyTd-r8Z/view?usp=sharing)
-```
-root_directory
-├──scan1 (scene_name1)
-├──scan2 (scene_name2) 
-      ├── images                 
-      │   ├── 00000000.jpg       
-      │   ├── 00000001.jpg       
-      │   └── ...                
-      ├── cams_1                   
-      │   ├── 00000000_cam.txt   
-      │   ├── 00000001_cam.txt   
-      │   └── ...                
-      └── pair.txt  
-```
+---
 
-Camera file ``cam.txt`` stores the camera parameters, which includes extrinsic, intrinsic, minimum depth and maximum depth:
-```
-extrinsic
-E00 E01 E02 E03
-E10 E11 E12 E13
-E20 E21 E22 E23
-E30 E31 E32 E33
+## Reproducing Results  
 
-intrinsic
-K00 K01 K02
-K10 K11 K12
-K20 K21 K22
+* Download pre-processed datasets (provided by PatchmatchNet):  
+  [DTU's evaluation set](https://drive.google.com/file/d/1jN8yEQX0a-S22XwUjISM8xSJD39pFLL_/view?usp=sharing),  
+  [Tanks & Temples](https://drive.google.com/file/d/1gAfmeoGNEFl9dL4QcAU4kF0BAyTd-r8Z/view?usp=sharing)  
 
-DEPTH_MIN DEPTH_MAX 
-```
-``pair.txt `` stores the view selection result. For each reference image, 10 best source views are stored in the file:
-```
-TOTAL_IMAGE_NUM
-IMAGE_ID0                       # index of reference image 0 
-10 ID0 SCORE0 ID1 SCORE1 ...    # 10 best source images for reference image 0 
-IMAGE_ID1                       # index of reference image 1
-10 ID0 SCORE0 ID1 SCORE1 ...    # 10 best source images for reference image 1 
-...
-``` 
+(The dataset folder organization, `cam.txt`, and `pair.txt` formats are the same as Effi-MVS. Details preserved from the original documentation, omitted here for brevity.)  
 
-* In ``test.sh``, set `DTU_TESTING`, or `TANK_TESTING` as the root directory of corresponding dataset, set `--OUT_DIR` as the directory to store the reconstructed point clouds, uncomment the evaluation command for corresponding dataset (default is to evaluate on DTU's evaluation set)
-* `CKPT_FILE` is the checkpoint file (our pretrained model is `checkpoints/DTU.ckpt` and `checkpoints/TANK_train_on_dtu.ckpt`), change it if you want to use your own model. 
-* Test on GPU by running `sh test.sh`. The code includes depth map estimation and depth fusion. The outputs are the point clouds in `ply` format. 
-* For quantitative evaluation on DTU dataset, download [SampleSet](http://roboimagedata.compute.dtu.dk/?page_id=36) and [Points](http://roboimagedata.compute.dtu.dk/?page_id=36). Unzip them and place `Points` folder in `SampleSet/MVS Data/`. The structure looks like:
-```
-SampleSet
-├──MVS Data
-      └──Points
-```
-In ``evaluations/dtu/BaseEvalMain_web.m``, set `dataPath` as path to `SampleSet/MVS Data/`, `plyPath` as directory that stores the reconstructed point clouds and `resultsPath` as directory to store the evaluation results. Then run ``evaluations/dtu/BaseEvalMain_web.m`` in matlab.
+---
 
-The results look like:
-DTU
-| Acc. (mm) | Comp. (mm) | Overall (mm) |
-|-----------|------------|--------------|
-| 0.321     | 0.313      | 0.317        |
+## Training & Evaluation  
 
-TANK-train on DTU(mean F-score)
-| intermediate | advanced (mm) |
-|------------- |-------------- |
-| 56.88        | 34.39         |
+- In `train.sh`, set `MVS_TRAINING` or `BLEND_TRAINING` as the dataset root directory;  
+- In `test.sh`, set `DTU_TESTING` or `TANK_TESTING` as the test dataset root directory;  
+- Use `--OUT_DIR` to specify where to store output point clouds;  
+- Run `sh train.sh` or `sh test.sh` for training/testing.  
 
+Outputs are point clouds in `.ply` format.  
 
-TANK-train on blendedmvs(mean F-score)
-| intermediate | advanced (mm) |
-|------------- |-------------- |
-| 62.38        | 38.14         |
+---
 
+## Acknowledgement  
 
-The performance on Tanks & Temples datasets will be better if the model is fine-tuned on BlendedMVS Datasets
-
-* Download the BlendedMVS [dataset](https://1drv.ms/u/s!Ag8Dbz2Aqc81gVDgxb8MDGgoV74S?e=hJKlvV).
-
-* For detailed quantitative results on Tanks & Temples, please check the leaderboards ([Tanks & Temples](https://www.tanksandtemples.org/details/1170/))
-
-* In ``train.sh``, set `MVS_TRAINING` or `BLEND_TRAINING` as the root directory of dataset; set `--logdir` as the directory to store the checkpoints. 
-* Train the model by running `sh train.sh`.
-
-DTU Training dataset:  
-Download the preprocessed [DTU training data](https://drive.google.com/file/d/1eDjh-_bxKKnEuz5h-HXS7EDJn59clx6V/view)
- and [Depths_raw](https://virutalbuy-public.oss-cn-hangzhou.aliyuncs.com/share/cascade-stereo/CasMVSNet/dtu_data/dtu_train_hr/Depths_raw.zip) 
- (both from [Original MVSNet](https://github.com/YoYo000/MVSNet)), and upzip it as the $MVS_TRANING  folder.
-
-Thanks to Yao Yao for opening source of his excellent work [MVSNet](https://github.com/YoYo000/MVSNet). Thanks to Xiaoyang Guo for opening source of his PyTorch implementation of MVSNet [MVSNet-pytorch](https://github.com/xy-guo/MVSNet_pytorch). Thanks to Zachary Teed for his excellent work RAFT, which inspired us to this work. 
-
+- [Effi-MVS](https://github.com/) for providing the base framework  
+- [MVSNet](https://github.com/YoYo000/MVSNet) for the multi-view stereo baseline  
+- [Diffusion Models](https://arxiv.org/abs/2006.11239) for inspiring our denoising-based refinement design  
